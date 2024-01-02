@@ -6,13 +6,7 @@ from tkinter import filedialog
 from classes import IFPanheader
 from classes import DFPANheader
 import datetime
-from matplotlib.widgets import Slider,CheckButtons
-import numpy as np
-
-from matplotlib.ticker import FuncFormatter
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-import numpy as np
+import dash_bootstrap_components as dbc
 data=[]
 data2=[]
 data3=[]
@@ -433,6 +427,7 @@ app = dash.Dash(__name__)
 app.layout = html.Div([
     dcc.Graph(id='plot'),
     dcc.Graph(id='plot2'),
+    dbc.Alert(id='signal-alert', color='info', dismissable=False),
     html.Div(id='index-display'),
     html.Label('Select Index:'),
     dcc.Slider(
@@ -451,13 +446,42 @@ app.layout = html.Div([
         marks={i: str(i) for i in range(min_data, max_data + 1)},
         tooltip={'placement': 'bottom'}
     ),
+
+    html.Label('Epsilon value:'),
+    dcc.Slider(
+        id='epsilon-slider',
+        min=0,
+        max=5,
+        step=0.1,
+        value=4,
+        marks={i: str(i) for i in range(6)},
+        tooltip={'placement': 'bottom'}
+    ),
+    html.Label('Min samples:'),
+    dcc.Slider(
+        id='min-samples-slider',
+        min=0,
+        max=20,
+        value=16,
+        marks={i: str(i) for i in range(21)},
+        tooltip={'placement': 'bottom'}
+    ),
+    html.Label('Number of density groups:'),
+    dcc.Slider(
+        id='density-groups-slider',
+        min=2,
+        max=15,
+        value=5,
+        marks={i: str(i) for i in range(2, 16)},
+        tooltip={'placement': 'bottom'}
+    ),
     dcc.Checklist(
         id='toggle-y-axis',
         options=[{'label': 'Fixed Y-Axis', 'value': 'fixed-y-axis'}],
         value=['fixed-y-axis']
     ),
     html.Div([
-        html.H2('Identified Signals Bandwidths'),
+        html.H2('Identified Signal Information'),
         dash_table.DataTable(
             id='bandwidth-table',
             columns=[
@@ -478,15 +502,15 @@ app.layout = html.Div([
 
 # Callback to update the plot based on sliders
 @app.callback(
-    [Output('plot', 'figure'),Output('plot2', 'figure'), Output('bandwidth-table', 'data'),Output('index-display', 'children')],
-    [Input('index-slider', 'value'), Input('threshold-slider', 'value'), Input('toggle-y-axis', 'value')]
+    [Output('plot', 'figure'), Output('plot2', 'figure'), Output('bandwidth-table', 'data'), Output('index-display', 'children'),Output('signal-alert', 'children')],
+    [Input('index-slider', 'value'), Input('threshold-slider', 'value'), Input('toggle-y-axis', 'value'),
+     Input('epsilon-slider', 'value'), Input('min-samples-slider', 'value'), Input('density-groups-slider', 'value')]
 )
-
-def update_plot(selected_index, threshold, toggle_value):
+def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, num_density_groups):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x, y=updated_data[int(selected_index)], mode='lines+markers', name='Data'))
     fig2 = go.Figure()
-    #fig2 = px.scatter(df, x='X', y='Y', color='Cluster', title=f'Azimuth Level')
+
     fig2.add_trace(go.Scatter(x=x,
         y=updated_data2[int(selected_index)],
         mode='markers',
@@ -498,17 +522,6 @@ def update_plot(selected_index, threshold, toggle_value):
         xaxis_title='Frequency',
         yaxis_title='Angle of Arrival',
         title='Azimuth Level'
-    )
-    fig.update_layout(
-        width=2000,  # Set the width of the first graph
-        height=600,  # Set the height of the first graph
-        # Other layout configurations for the first graph
-    )
-
-    fig2.update_layout(
-        width=2000,  # Set the width of the second graph to match the first
-        height=600,  # Set the height of the second graph to match the first
-        # Other layout configurations for the second graph
     )
     index_display = html.Div(f"Selected Index: {selected_index}", style={'margin-top': '10px', 'font-weight': 'bold'})
     # Draw a red line at the threshold on the y-axis
@@ -523,15 +536,15 @@ def update_plot(selected_index, threshold, toggle_value):
     #ML
     data = {'X': x, 'Y': updated_data2[int(selected_index)]}
     df = pd.DataFrame(data)
-    epsilon = 3
-    min_samples = 16
     dbscan = DBSCAN(eps=epsilon, min_samples=min_samples)
     df['Cluster'] = dbscan.fit_predict(df[['X', 'Y']])
+
     cluster_counts = df['Cluster'].value_counts()
-    top_clusters = cluster_counts[cluster_counts.index != -1].nlargest(2)
+    top_clusters = cluster_counts[cluster_counts.index != -1].nlargest(num_density_groups)
     top_points = df[df['Cluster'].isin(top_clusters.index)]
     density_per_cluster = top_points.groupby('Cluster').size().sort_values(ascending=False)
-    colors = px.colors.qualitative.Plotly[:5]
+    colors = px.colors.qualitative.Plotly[:num_density_groups]
+    average_y_values = top_points.groupby('Cluster')['Y'].mean()
 
     fig2 = px.scatter(df, x='X', y='Y', color='Cluster', title=f'Azimuth Level')
     fig2.update_traces(marker=dict(size=8, color='rgba(0, 0, 0, 0.3)'))
@@ -546,8 +559,9 @@ def update_plot(selected_index, threshold, toggle_value):
         # Label each cluster with its density ranking
         fig2.add_annotation(
             x=cluster_points['X'].mean(),
-            y=cluster_points['Y'].mean(),
-            text=f"Density Rank: {i + 1}<br>Points: {density_per_cluster[cluster_id]}",
+            y=cluster_points['Y'].max() + 0.35 * (cluster_points['Y'].max() - cluster_points['Y'].min()),
+            # Adjust the position
+            text=f"Density Rank: {i + 1}<br>Points: {density_per_cluster[cluster_id]}<br>Avg AoA: {average_y_values[cluster_id]:.2f}",
             showarrow=False,
             font=dict(color="black", size=10),
             xanchor="center",
@@ -682,7 +696,12 @@ def update_plot(selected_index, threshold, toggle_value):
     fig.update_layout(yaxis=yaxis_settings)
     # fig2.update_layout(yaxis=yaxis_settings)
 
-    return fig,fig2, bandwidth_data, index_display
+    count = len([y for y in updated_data[selected_index] if y > threshold])
+
+    alert_message = dbc.Alert(f'There is/are {idx+1} identified signal/signals above the threshold amounting to {count} data points.', color='info',
+                              dismissable=True) if count > 0 else None
+
+    return fig,fig2, bandwidth_data, index_display, alert_message
 
 if __name__ == '__main__':
     app.run_server(host='0.0.0.0', port=8007, debug=False)
