@@ -486,6 +486,7 @@ def update_plot(selected_index, threshold, toggle_value):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x, y=updated_data[int(selected_index)], mode='lines+markers', name='Data'))
     fig2 = go.Figure()
+    #fig2 = px.scatter(df, x='X', y='Y', color='Cluster', title=f'Azimuth Level')
     fig2.add_trace(go.Scatter(x=x,
         y=updated_data2[int(selected_index)],
         mode='markers',
@@ -519,7 +520,39 @@ def update_plot(selected_index, threshold, toggle_value):
         y1=threshold,
         line=dict(color='red', width=2, dash='dash'),
     )
+    #ML
+    data = {'X': x, 'Y': updated_data2[int(selected_index)]}
+    df = pd.DataFrame(data)
+    epsilon = 3
+    min_samples = 16
+    dbscan = DBSCAN(eps=epsilon, min_samples=min_samples)
+    df['Cluster'] = dbscan.fit_predict(df[['X', 'Y']])
+    cluster_counts = df['Cluster'].value_counts()
+    top_clusters = cluster_counts[cluster_counts.index != -1].nlargest(2)
+    top_points = df[df['Cluster'].isin(top_clusters.index)]
+    density_per_cluster = top_points.groupby('Cluster').size().sort_values(ascending=False)
+    colors = px.colors.qualitative.Plotly[:5]
 
+    fig2 = px.scatter(df, x='X', y='Y', color='Cluster', title=f'Azimuth Level')
+    fig2.update_traces(marker=dict(size=8, color='rgba(0, 0, 0, 0.3)'))
+    fig2.update_xaxes(title_text='Frequency (MHz)')
+    fig2.update_yaxes(title_text='Angle of Arrival')
+
+    for i, cluster_id in enumerate(top_clusters.index):
+        cluster_points = top_points[top_points['Cluster'] == cluster_id]
+        fig2.add_trace(px.scatter(cluster_points, x='X', y='Y').data[0])
+        fig2.data[i + 1].marker.color = colors[i]
+
+        # Label each cluster with its density ranking
+        fig2.add_annotation(
+            x=cluster_points['X'].mean(),
+            y=cluster_points['Y'].mean(),
+            text=f"Density Rank: {i + 1}<br>Points: {density_per_cluster[cluster_id]}",
+            showarrow=False,
+            font=dict(color="black", size=10),
+            xanchor="center",
+            yanchor="bottom"
+        )
     # Highlight points above the threshold in red
     above_threshold_x = [x[i] for i, y in enumerate(updated_data[int(selected_index)]) if y > threshold]
     above_threshold_y = [y for y in updated_data[int(selected_index)] if y > threshold]
@@ -647,7 +680,7 @@ def update_plot(selected_index, threshold, toggle_value):
         yaxis_settings['range'] = [min_data, max_data]  # Define your custom range here
 
     fig.update_layout(yaxis=yaxis_settings)
-    fig2.update_layout(yaxis=yaxis_settings)
+    # fig2.update_layout(yaxis=yaxis_settings)
 
     return fig,fig2, bandwidth_data, index_display
 
