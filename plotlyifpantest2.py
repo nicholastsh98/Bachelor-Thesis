@@ -321,8 +321,9 @@ app = dash.Dash(__name__)
 
 # Define layout
 app.layout = html.Div([
-    dbc.Alert(id='signal-alert', color='info', dismissable=False),
+
     dcc.Graph(id='plot'),
+    dbc.Alert(id='signal-alert', color='info', dismissable=False),
     html.Div(id='index-display'),
     html.Label('Select Index:'),
     dcc.Slider(
