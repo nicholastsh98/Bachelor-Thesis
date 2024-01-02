@@ -466,7 +466,9 @@ app.layout = html.Div([
                 {'name': 'Start Frequency', 'id': 'Start Frequency'},
                 {'name': 'End Frequency', 'id': 'End Frequency'},
                 {'name': 'Center Frequency', 'id': 'Center Frequency'},
+                {'name': 'Median Signal Strength', 'id': 'Median Signal Strength'},
                 {'name': 'Median Index', 'id': 'Median Index'},
+                {'name': 'Angle of Arrival', 'id': 'Angle of Arrival'}
             ],
             style_table={'overflowX': 'auto'},
         )
@@ -576,6 +578,24 @@ def update_plot(selected_index, threshold, toggle_value):
             end_freq = signal[-1]  # End frequency of the signal
             mean_freq = sum(signal) / len(signal)  # Mean frequency of the signal
 
+            signal_points = []
+            for i, x_val in enumerate(x):
+                if x_val in signal:
+                    signal_points.append((x_val, updated_data[int(selected_index)][i]))  # Collect x, y coordinates
+
+            middle_point = None
+            middle_point_index = None
+            if signal_points:
+                signal_points.sort()  # Sort the points by x value
+                middle_point_index = len(signal_points) // 2  # Get the middle index
+                middle_point = signal_points[middle_point_index][1]  # Extract the y-value of the middle point
+
+                # Find the index of the middle point in the entire dataset
+                middle_x_val = signal_points[middle_point_index][0]
+                middle_point_index = x.index(middle_x_val)
+
+                if middle_point_index is not None and middle_point_index < len(updated_data2[int(selected_index)]):
+                    middle_point_value = updated_data2[int(selected_index)][middle_point_index]
 
             # Add data for each signal to bandwidth_data
             fig.update_layout(
@@ -610,7 +630,10 @@ def update_plot(selected_index, threshold, toggle_value):
                 'Start Frequency': f'{start_freq:.2f} MHz',
                 'End Frequency': f'{end_freq:.2f} MHz',
                 'Center Frequency': f'{mean_freq:.2f} MHz',
-                'Median Index': median_index if median_index else ''
+                'Median Signal Strength': middle_point if middle_point else '',
+                'Median Index': middle_point_index if middle_point_index is not None else '',
+                'Angle of Arrival': middle_point_value if middle_point_value is not None else ''
+                # Include the value from updated_data2 based on middle index
             })
 
 
@@ -624,6 +647,7 @@ def update_plot(selected_index, threshold, toggle_value):
         yaxis_settings['range'] = [min_data, max_data]  # Define your custom range here
 
     fig.update_layout(yaxis=yaxis_settings)
+    fig2.update_layout(yaxis=yaxis_settings)
 
     return fig,fig2, bandwidth_data, index_display
 
