@@ -480,6 +480,12 @@ app.layout = html.Div([
         options=[{'label': 'Fixed Y-Axis', 'value': 'fixed-y-axis'}],
         value=['fixed-y-axis']
     ),
+    html.Label('Show Points Above Threshold Only:'),
+    dcc.Checklist(
+        id='show-above-threshold',
+        options=[{'label': 'Show Points Above Threshold', 'value': 'show'}],
+        value=[]
+    ),
     html.Div([
         html.H2('Identified Signal Information'),
         dash_table.DataTable(
@@ -504,25 +510,12 @@ app.layout = html.Div([
 @app.callback(
     [Output('plot', 'figure'), Output('plot2', 'figure'), Output('bandwidth-table', 'data'), Output('index-display', 'children'),Output('signal-alert', 'children')],
     [Input('index-slider', 'value'), Input('threshold-slider', 'value'), Input('toggle-y-axis', 'value'),
-     Input('epsilon-slider', 'value'), Input('min-samples-slider', 'value'), Input('density-groups-slider', 'value')]
+     Input('epsilon-slider', 'value'), Input('min-samples-slider', 'value'), Input('density-groups-slider', 'value'),Input('show-above-threshold', 'value')]
 )
-def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, num_density_groups):
+def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, num_density_groups,show_above_threshold):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x, y=updated_data[int(selected_index)], mode='lines+markers', name='Data'))
-    fig2 = go.Figure()
 
-    fig2.add_trace(go.Scatter(x=x,
-        y=updated_data2[int(selected_index)],
-        mode='markers',
-        name='Azimuth Level'
-    ))
-
-    # Adding layout details
-    fig2.update_layout(
-        xaxis_title='Frequency',
-        yaxis_title='Angle of Arrival',
-        title='Azimuth Level'
-    )
     index_display = html.Div(f"Selected Index: {selected_index}", style={'margin-top': '10px', 'font-weight': 'bold'})
     # Draw a red line at the threshold on the y-axis
     fig.add_shape(
@@ -534,39 +527,16 @@ def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, n
         line=dict(color='red', width=2, dash='dash'),
     )
     #ML
-    data = {'X': x, 'Y': updated_data2[int(selected_index)]}
-    df = pd.DataFrame(data)
-    dbscan = DBSCAN(eps=epsilon, min_samples=min_samples)
-    df['Cluster'] = dbscan.fit_predict(df[['X', 'Y']])
+    fig2 = go.Figure()
 
-    cluster_counts = df['Cluster'].value_counts()
-    top_clusters = cluster_counts[cluster_counts.index != -1].nlargest(num_density_groups)
-    top_points = df[df['Cluster'].isin(top_clusters.index)]
-    density_per_cluster = top_points.groupby('Cluster').size().sort_values(ascending=False)
-    colors = px.colors.qualitative.Plotly[:num_density_groups]
-    average_y_values = top_points.groupby('Cluster')['Y'].mean()
 
-    fig2 = px.scatter(df, x='X', y='Y', color='Cluster', title=f'Azimuth Level')
-    fig2.update_traces(marker=dict(size=8, color='rgba(0, 0, 0, 0.3)'))
-    fig2.update_xaxes(title_text='Frequency (MHz)')
-    fig2.update_yaxes(title_text='Angle of Arrival')
+    # Adding layout details
+    fig2.update_layout(
+        xaxis_title='Frequency',
+        yaxis_title='Angle of Arrival',
+        title='Azimuth Level'
+    )
 
-    for i, cluster_id in enumerate(top_clusters.index):
-        cluster_points = top_points[top_points['Cluster'] == cluster_id]
-        fig2.add_trace(px.scatter(cluster_points, x='X', y='Y').data[0])
-        fig2.data[i + 1].marker.color = colors[i]
-
-        # Label each cluster with its density ranking
-        fig2.add_annotation(
-            x=cluster_points['X'].mean(),
-            y=cluster_points['Y'].max() + 0.35 * (cluster_points['Y'].max() - cluster_points['Y'].min()),
-            # Adjust the position
-            text=f"Density Rank: {i + 1}<br>Points: {density_per_cluster[cluster_id]}<br>Avg AoA: {average_y_values[cluster_id]:.2f}",
-            showarrow=False,
-            font=dict(color="black", size=10),
-            xanchor="center",
-            yanchor="bottom"
-        )
     # Highlight points above the threshold in red
     above_threshold_x = [x[i] for i, y in enumerate(updated_data[int(selected_index)]) if y > threshold]
     above_threshold_y = [y for y in updated_data[int(selected_index)] if y > threshold]
@@ -597,6 +567,7 @@ def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, n
 
         signals.append(signal)
 
+
         # Calculate bandwidth for each identified signal and highlight on the plot
         for signal in signals:
             if len(signal) > 1:
@@ -615,6 +586,7 @@ def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, n
 
 
     print("Bandwidths of identified signals:", bandwidths)
+    signal_counter = 0
     for idx, signal in enumerate(signals):
         if len(signal) > 1:
             signal_bandwidth = signal[-1] - signal[0]
@@ -644,6 +616,8 @@ def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, n
                 if middle_point_index is not None and middle_point_index < len(updated_data2[int(selected_index)]):
                     middle_point_value = updated_data2[int(selected_index)][middle_point_index]
 
+            signal_counter += 1
+
             # Add data for each signal to bandwidth_data
             fig.update_layout(
                 title='DFPAN Data ',
@@ -672,7 +646,7 @@ def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, n
             )
             # indexes_str = ', '.join(str(idx) for idx in signal_indexes[idx])
             bandwidth_data.append({
-                'Signal': f'Signal {idx + 1}',
+                'Signal': f'Signal {signal_counter}',
                 'Bandwidth': f'{signal_bandwidth:.2f} MHz',
                 'Start Frequency': f'{start_freq:.2f} MHz',
                 'End Frequency': f'{end_freq:.2f} MHz',
@@ -682,6 +656,142 @@ def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, n
                 'Angle of Arrival': middle_point_value if middle_point_value is not None else ''
                 # Include the value from updated_data2 based on middle index
             })
+    signal_color_map = {
+        1: 'blue',
+        2: 'green',
+        3: 'red',
+        4: 'yellow',
+        5: 'purple',
+        6: 'cyan',
+        7: 'magenta',
+        8: 'orange',
+        9: 'lime',
+        10: 'pink',
+        11: 'teal',
+        12: 'brown',
+        13: 'olive',
+        14: 'skyblue',
+        15: 'indigo'
+    }
+    x_range = [min(x), max(x)]  # Define x-axis range
+
+    fig.update_xaxes(range=x_range)  # Set x-axis range for fig
+    indexes_above_threshold = [i for i, y in enumerate(updated_data[int(selected_index)]) if y > threshold]
+
+    if 'show' in show_above_threshold:
+        # Plot points from fig1 into fig2 with updated_data2
+        # Plot points from fig1 into fig2 with updated_data2
+        filtered_indexes_fig1 = []
+        for idx in indexes_above_threshold:
+            for signal in signals:
+                if x[idx] in signal:
+                    filtered_indexes_fig1.append(idx)
+                    break  # Move to the next index
+
+        x_values_fig2 = [x[idx] for idx in filtered_indexes_fig1]
+        y_values_fig2 = [updated_data2[int(selected_index)][idx] for idx in filtered_indexes_fig1]
+
+        signals_in_fig2 = []
+
+        for idx in filtered_indexes_fig1:
+            for signal_idx, signal in enumerate(signals):
+                if x[idx] in signal:
+                    signals_in_fig2.append(signal_idx + 1)
+                    fig2.add_trace(go.Scatter(
+                        x=signal,
+                        y=[threshold] * len(signal),
+                        mode='markers',
+                        marker=dict(color=colors[signal_idx]),
+                        showlegend=True
+                    ))
+
+        fig2.add_trace(go.Scatter(
+            x=x_values_fig2,
+            y=y_values_fig2,
+            mode='markers',
+            marker=dict(color='red'),
+            name='Selected Indexes from Fig1 in Fig2'
+        ))
+
+        unique_signals_in_fig2 = list(set(signals_in_fig2))
+        for signal_num in unique_signals_in_fig2:
+            occurrences = signals_in_fig2.count(signal_num)
+            if occurrences == 1:
+                fig2.data = [trace for trace in fig2.data if trace.name != f'Signal {signal_num}']
+
+        for i, (x_val, y_val) in enumerate(zip(x_values_fig2, y_values_fig2)):
+            if signals_in_fig2[i] not in unique_signals_in_fig2:
+                continue
+            fig2.add_annotation(
+                x=x_val,
+                y=y_val,
+                text=f"Signal: {signals_in_fig2[i]}",
+                showarrow=False,
+                font=dict(color=colors[signals_in_fig2[i] - 1], size=12),
+                xshift=5,
+                yshift=5
+            )
+
+        fig2.update_layout(
+            legend=dict(
+                title='Identified Angles',
+                orientation='v',
+                yanchor='middle',
+                xanchor='right'
+            )
+        )
+        fig2.update_xaxes(range=x_range)
+    else:
+        fig2 = go.Figure()
+
+        fig2.add_trace(go.Scatter(x=x,
+                                  y=updated_data2[int(selected_index)],
+                                  mode='markers',
+                                  name='Azimuth Level'
+                                  ))
+
+        # Adding layout details
+        fig2.update_layout(
+            xaxis_title='Frequency',
+            yaxis_title='Angle of Arrival',
+            title='Azimuth Level'
+        )
+        # ML
+        data = {'X': x, 'Y': updated_data2[int(selected_index)]}
+        df = pd.DataFrame(data)
+        dbscan = DBSCAN(eps=epsilon, min_samples=min_samples)
+        df['Cluster'] = dbscan.fit_predict(df[['X', 'Y']])
+
+        cluster_counts = df['Cluster'].value_counts()
+        top_clusters = cluster_counts[cluster_counts.index != -1].nlargest(num_density_groups)
+        top_points = df[df['Cluster'].isin(top_clusters.index)]
+        density_per_cluster = top_points.groupby('Cluster').size().sort_values(ascending=False)
+        colors = px.colors.qualitative.Plotly[:num_density_groups]
+        average_y_values = top_points.groupby('Cluster')['Y'].mean()
+
+        fig2 = px.scatter(df, x='X', y='Y', color='Cluster', title=f'Azimuth Level')
+        fig2.update_traces(marker=dict(size=8, color='rgba(0, 0, 0, 0.3)'))
+        fig2.update_xaxes(title_text='Frequency (MHz)')
+        fig2.update_yaxes(title_text='Angle of Arrival')
+        fig2.update_xaxes(range=x_range)  # Set x-axis range for fig2
+
+        for i, cluster_id in enumerate(top_clusters.index):
+            cluster_points = top_points[top_points['Cluster'] == cluster_id]
+            fig2.add_trace(px.scatter(cluster_points, x='X', y='Y').data[0])
+            fig2.data[i + 1].marker.color = colors[i]
+
+            # Label each cluster with its density ranking
+            fig2.add_annotation(
+                x=cluster_points['X'].mean(),
+                y=cluster_points['Y'].max() + 0.35 * (cluster_points['Y'].max() - cluster_points['Y'].min()),
+                # Adjust the position
+                text=f"Density Rank: {i + 1}<br>Points: {density_per_cluster[cluster_id]}<br>Avg AoA: {average_y_values[cluster_id]:.2f}",
+                showarrow=False,
+                font=dict(color="black", size=10),
+                xanchor="center",
+                yanchor="bottom"
+            )
+
 
 
     yaxis_settings = {}
@@ -698,7 +808,7 @@ def update_plot(selected_index, threshold, toggle_value, epsilon, min_samples, n
 
     count = len([y for y in updated_data[selected_index] if y > threshold])
 
-    alert_message = dbc.Alert(f'There is/are {idx+1} identified signal/signals above the threshold amounting to {count} data points.', color='info',
+    alert_message = dbc.Alert(f'There is/are {signal_counter} identified signal/signals above the threshold amounting to {count} data points.', color='info',
                               dismissable=True) if count > 0 else None
 
     return fig,fig2, bandwidth_data, index_display, alert_message
